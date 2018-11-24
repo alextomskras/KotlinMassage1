@@ -37,8 +37,11 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun refreshTokens(): String? {
+
         val newToken = FirebaseInstanceId.getInstance().token
+//        val newToken22 = FirebaseInstanceId.getInstance().instanceId.result.toString()
         Log.d("newTokenLogin", (newToken))
+//        Log.d("Token222", newToken22)
         Toast.makeText(this, "Please fill out $newToken", Toast.LENGTH_SHORT).show()
 
 
@@ -52,6 +55,8 @@ class LoginActivity : AppCompatActivity() {
     private fun performLogin() {
         val email = email_edittext_login.text.toString()
         val password = password_edittext_login.text.toString()
+
+//        MyFirebaseMessagingService().onNewToken
 
         refreshTokens()
 

@@ -21,6 +21,11 @@ import kotlinx.android.synthetic.main.activity_register.*
 class MyFirebaseInstanceIDService : FirebaseMessagingService() {
     val TAG = "NEW_TOKEN"
 
+    fun onSuccess(instanceIdResult: InstanceIdResult) {
+        val mToken = instanceIdResult.token
+        Log.e("Token", mToken)
+    }
+
     override fun onNewToken(s: String?) {
         Log.d("NEW_TOKEN", s)
 

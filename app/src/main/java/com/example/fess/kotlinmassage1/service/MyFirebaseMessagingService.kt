@@ -34,8 +34,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 //        startActivity(intent)
     }
 
+
     override fun onNewToken(s: String?) {
-        Log.d("NEW_TOKEN", s)
+        super.onNewToken(s)
+        val deviceToken = s
+        Log.d("NEW_TOKEN", deviceToken)
 
 
         val newRegistrationToken = FirebaseInstanceId.getInstance().getInstanceId().toString()
