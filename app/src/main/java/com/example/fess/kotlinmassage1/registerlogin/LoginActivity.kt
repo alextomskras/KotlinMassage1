@@ -33,11 +33,16 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun refreshTokens(): String? {
+        FirebaseInstanceId.getInstance().instanceId
+                .addOnSuccessListener(this@LoginActivity) { instanceIdResult ->
+                    val mToken = instanceIdResult.token
+                    Log.d("printing  fcm token:", mToken)
+                }
 
 
         val newToken = FirebaseInstanceId.getInstance().token
 //        val newToken22 = FirebaseInstanceId.getInstance().instanceId.result.toString()
-        Log.d("newTokenLogin", (newToken))
+        Log.d("newTokenLogin", newToken)
 //        Log.d("Token222", newToken22)
         Toast.makeText(this, "Please fill out $newToken", Toast.LENGTH_LONG).show()
 
