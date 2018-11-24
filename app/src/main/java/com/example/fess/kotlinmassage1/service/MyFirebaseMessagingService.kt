@@ -10,7 +10,6 @@ import android.util.Log
 import android.widget.Toast
 import com.example.fess.kotlinmassage1.R
 import com.example.fess.kotlinmassage1.registerlogin.LoginActivity
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.iid.FirebaseInstanceId
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -51,6 +50,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     fun saveTokenToFirebaseDatabase(newRegistrationToken: String?) {
+
         if (newRegistrationToken == null) {
             throw NullPointerException("FCM token is null.")
             //        val uid = FirebaseAuth.getInstance().uid ?: ""

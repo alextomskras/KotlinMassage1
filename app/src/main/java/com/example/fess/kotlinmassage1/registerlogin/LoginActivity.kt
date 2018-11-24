@@ -7,14 +7,10 @@ import android.util.Log
 import android.widget.Toast
 import com.example.fess.kotlinmassage1.R
 import com.example.fess.kotlinmassage1.messages.LatestMessagesActivity
-import com.example.fess.kotlinmassage1.service.MyFirebaseInstanceIDService
 import com.example.fess.kotlinmassage1.service.MyFirebaseMessagingService
 import com.google.firebase.auth.FirebaseAuth
-import kotlinx.android.synthetic.main.activity_login.*
-import com.google.firebase.internal.FirebaseAppHelper.getToken
-import com.google.firebase.iid.InstanceIdResult
-import com.google.android.gms.tasks.OnSuccessListener
 import com.google.firebase.iid.FirebaseInstanceId
+import kotlinx.android.synthetic.main.activity_login.*
 
 
 class LoginActivity : AppCompatActivity() {
@@ -38,11 +34,12 @@ class LoginActivity : AppCompatActivity() {
 
     private fun refreshTokens(): String? {
 
+
         val newToken = FirebaseInstanceId.getInstance().token
 //        val newToken22 = FirebaseInstanceId.getInstance().instanceId.result.toString()
         Log.d("newTokenLogin", (newToken))
 //        Log.d("Token222", newToken22)
-        Toast.makeText(this, "Please fill out $newToken", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Please fill out $newToken", Toast.LENGTH_LONG).show()
 
 
         if (newToken != null) {

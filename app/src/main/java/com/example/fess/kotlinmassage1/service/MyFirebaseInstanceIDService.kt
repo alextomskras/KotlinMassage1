@@ -1,21 +1,12 @@
 package com.example.fess.kotlinmassage1.service
 
-import android.content.Intent
-import android.support.annotation.NonNull
 import android.util.Log
 import android.widget.Toast
-import com.example.fess.kotlinmassage1.R.id.username_edittext_register
-import com.example.fess.kotlinmassage1.messages.LatestMessagesActivity
-import com.example.fess.kotlinmassage1.registerlogin.User
-import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.iid.FirebaseInstanceId
-import com.google.firebase.iid.FirebaseInstanceIdService
 import com.google.firebase.iid.InstanceIdResult
 import com.google.firebase.messaging.FirebaseMessagingService
-import com.google.firebase.messaging.RemoteMessage
-import kotlinx.android.synthetic.main.activity_register.*
 
 
 class MyFirebaseInstanceIDService : FirebaseMessagingService() {
@@ -27,6 +18,7 @@ class MyFirebaseInstanceIDService : FirebaseMessagingService() {
     }
 
     override fun onNewToken(s: String?) {
+        super.onNewToken(s)
         Log.d("NEW_TOKEN", s)
 
 
@@ -40,6 +32,7 @@ class MyFirebaseInstanceIDService : FirebaseMessagingService() {
     }
 
     fun saveTokenToFirebaseDatabase(newRegistrationToken: String) {
+        val mTest1 = onNewToken("22222")
         if (newRegistrationToken == null) {
             throw NullPointerException("FCM token is null.")
             //        val uid = FirebaseAuth.getInstance().uid ?: ""
