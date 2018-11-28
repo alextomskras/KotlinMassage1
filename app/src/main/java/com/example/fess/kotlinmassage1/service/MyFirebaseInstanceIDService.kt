@@ -14,7 +14,7 @@ class MyFirebaseInstanceIDService : FirebaseMessagingService() {
 
     fun onSuccess(instanceIdResult: InstanceIdResult) {
         val mToken = instanceIdResult.token
-        Log.e("Token", mToken)
+        Log.d("Token", mToken)
     }
 
     override fun onNewToken(s: String?) {

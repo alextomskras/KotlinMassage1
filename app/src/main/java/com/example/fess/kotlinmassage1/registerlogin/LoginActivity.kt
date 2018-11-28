@@ -33,11 +33,21 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun refreshTokens(): String? {
-        FirebaseInstanceId.getInstance().instanceId
+        Log.d("PRIVET", "Tken")
+        val tken = FirebaseInstanceId.getInstance().instanceId
+
                 .addOnSuccessListener(this@LoginActivity) { instanceIdResult ->
                     val mToken = instanceIdResult.token
-                    Log.d("printing  fcm token:", mToken)
+
+                    Log.d("printing  fcm token:", "$mToken")
                 }
+                .addOnFailureListener {
+                    Toast.makeText(this, "BROKEN TOKEN", Toast.LENGTH_LONG).show()
+                    return@addOnFailureListener
+
+                }
+        Log.d("PRIVET", "$tken")
+
 
 
         val newToken = FirebaseInstanceId.getInstance().token
