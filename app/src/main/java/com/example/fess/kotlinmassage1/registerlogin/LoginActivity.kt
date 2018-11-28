@@ -44,7 +44,6 @@ class LoginActivity : AppCompatActivity() {
                 .addOnFailureListener {
                     Toast.makeText(this, "BROKEN TOKEN", Toast.LENGTH_LONG).show()
                     return@addOnFailureListener
-
                 }
         Log.d("PRIVET", "$tken")
 
