@@ -7,13 +7,22 @@ import android.util.Log
 import android.widget.Toast
 import com.example.fess.kotlinmassage1.R
 import com.example.fess.kotlinmassage1.messages.LatestMessagesActivity
+import com.example.fess.kotlinmassage1.models.User
 import com.example.fess.kotlinmassage1.service.MyFirebaseMessagingService
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.ChildEventListener
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.iid.FirebaseInstanceId
 import kotlinx.android.synthetic.main.activity_login.*
 
 
 class LoginActivity : AppCompatActivity() {
+
+    val TAG = "CheckUsers"
+
+    var toUser: User? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +85,9 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
+//        checkUsers()
+
+
 
 //        FirebaseInstanceId.getInstance().token
 
@@ -95,4 +107,52 @@ class LoginActivity : AppCompatActivity() {
                 }
     }
 
+    fun checkUsers() {
+
+        val fromId = FirebaseAuth.getInstance().uid
+        val toId = toUser?.uid
+        Log.d(TAG, "$fromId")
+//        val ref = FirebaseDatabase.getInstance().getReference("/user-messages/$fromId/$toId")
+        val ref = FirebaseDatabase.getInstance().getReference("/users/$fromId")
+
+        ref.addChildEventListener(object : ChildEventListener {
+
+            override fun onChildAdded(p0: DataSnapshot, p1: String?) {
+                val chatMessage = p0.getValue(User::class.java)
+
+                if (chatMessage != null) {
+                    Log.d(TAG, chatMessage.username)
+
+//                    if (chatMessage.fromId == FirebaseAuth.getInstance().uid) {
+//                        val currentUser = LatestMessagesActivity.currentUser ?: return
+//
+//
+//                    }
+                }
+
+            }
+
+            override fun onCancelled(p0: DatabaseError) {
+
+            }
+
+            override fun onChildChanged(p0: DataSnapshot, p1: String?) {
+
+            }
+
+            override fun onChildMoved(p0: DataSnapshot, p1: String?) {
+
+            }
+
+            override fun onChildRemoved(p0: DataSnapshot) {
+
+            }
+
+        })
+
+    }
+
+
 }
+
+
