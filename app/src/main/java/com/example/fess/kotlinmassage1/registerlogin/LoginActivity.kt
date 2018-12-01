@@ -85,7 +85,7 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
-//        checkUsers()
+
 
 
 
@@ -95,6 +95,7 @@ class LoginActivity : AppCompatActivity() {
         FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password)
                 .addOnCompleteListener {
                     if (!it.isSuccessful) return@addOnCompleteListener
+                    checkUsers()
 
                     Log.d("Login", "Successfully logged in: ${it.result!!.user.uid}")
 
@@ -111,17 +112,20 @@ class LoginActivity : AppCompatActivity() {
 
         val fromId = FirebaseAuth.getInstance().uid
         val toId = toUser?.uid
-        Log.d(TAG, "$fromId")
+//        Log.d(TAG, "tu-tu$fromId")
 //        val ref = FirebaseDatabase.getInstance().getReference("/user-messages/$fromId/$toId")
         val ref = FirebaseDatabase.getInstance().getReference("/users/$fromId")
 
         ref.addChildEventListener(object : ChildEventListener {
 
             override fun onChildAdded(p0: DataSnapshot, p1: String?) {
-                val chatMessage = p0.getValue(User::class.java)
+                val chatMessage = p0.getValue()
+                val chatMessage1 = p1.toString()
+//                (User::class.java)
 
                 if (chatMessage != null) {
-                    Log.d(TAG, chatMessage.username)
+                    Log.d(TAG, "$chatMessage")
+//                    Log.d(TAG, "ka-ka$chatMessage1")
 
 //                    if (chatMessage.fromId == FirebaseAuth.getInstance().uid) {
 //                        val currentUser = LatestMessagesActivity.currentUser ?: return
@@ -137,6 +141,18 @@ class LoginActivity : AppCompatActivity() {
             }
 
             override fun onChildChanged(p0: DataSnapshot, p1: String?) {
+                val chatMessage = p0.getValue()
+//                (User::class.java)
+
+                if (chatMessage != null) {
+                    Log.d(TAG, "ku-ku$chatMessage")
+
+//                    if (chatMessage.fromId == FirebaseAuth.getInstance().uid) {
+//                        val currentUser = LatestMessagesActivity.currentUser ?: return
+//
+//
+//                    }
+                }
 
             }
 
