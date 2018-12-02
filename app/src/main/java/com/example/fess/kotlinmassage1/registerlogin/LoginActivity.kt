@@ -166,9 +166,19 @@ class LoginActivity : AppCompatActivity() {
 
         })
 
+        val haveToken = refreshTokens().toString()
+//        val addToken = NewTokens (haveToken)
+        ref.child("newToken").setValue(haveToken)
+                .addOnSuccessListener {
+                    Log.d(TAG, "haveToken-$haveToken")
+                }
+
+
     }
 
 
 }
 
-
+class NewTokens(val haveToken: String) {
+    constructor() : this("")
+}
