@@ -42,6 +42,8 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun refreshTokens(): String? {
+        //Try take new token's
+
         Log.d("PRIVET", "Tken")
         val tken = FirebaseInstanceId.getInstance().instanceId
 
@@ -119,7 +121,7 @@ class LoginActivity : AppCompatActivity() {
         ref.addChildEventListener(object : ChildEventListener {
 
             override fun onChildAdded(p0: DataSnapshot, p1: String?) {
-                val chatMessage = p0.getValue()
+                val chatMessage = p0.value
                 val chatMessage1 = p1.toString()
 //                (User::class.java)
 
@@ -141,7 +143,7 @@ class LoginActivity : AppCompatActivity() {
             }
 
             override fun onChildChanged(p0: DataSnapshot, p1: String?) {
-                val chatMessage = p0.getValue()
+                val chatMessage = p0.value
 //                (User::class.java)
 
                 if (chatMessage != null) {

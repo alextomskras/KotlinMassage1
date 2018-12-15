@@ -14,6 +14,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.iid.FirebaseInstanceId
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.util.*
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -40,7 +41,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         Log.d("NEW_TOKEN", deviceToken)
 
 
-        val newRegistrationToken = FirebaseInstanceId.getInstance().getInstanceId().toString()
+        val newRegistrationToken = FirebaseInstanceId.getInstance().instanceId.toString()
         Log.d(TAG, "TOKEN_$newRegistrationToken")
         Toast.makeText(this, "Failed create Token: ${newRegistrationToken}", Toast.LENGTH_SHORT).show()
 
@@ -104,4 +105,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(0 /* ID of notification */, notificationBuilder.build())
     }
+
+
+    override fun onMessageSent(msgId: String?) {
+        Log.e(TAG, "onMessageSent: " + msgId!!)
+    }
+
+    override fun onSendError(msgId: String?, e: Exception?) {
+        Log.e(TAG, "onSendError: " + msgId!!)
+        Log.e(TAG, "Exception: " + e!!)
+    }
+
+
+    private val SENDER_ID = "44195834951"
+    private val random = Random()
 }

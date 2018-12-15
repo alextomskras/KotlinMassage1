@@ -3,9 +3,9 @@ package com.example.fess.kotlinmassage1.messages
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.support.v7.app.AppCompatActivity
 import android.os.Bundle
 import android.provider.MediaStore
+import android.support.v7.app.AppCompatActivity
 import android.util.Log
 import android.widget.Toast
 import com.example.fess.kotlinmassage1.R
@@ -20,6 +20,8 @@ import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.messaging.RemoteMessage
 import com.google.firebase.storage.FirebaseStorage
 import com.xwray.groupie.GroupAdapter
 import com.xwray.groupie.ViewHolder
@@ -37,6 +39,9 @@ class ChatLogActivity : AppCompatActivity() {
     val adapter = GroupAdapter<ViewHolder>()
 
     var toUser: User? = null
+
+    private val SENDER_ID = "44195834951"
+    private val random = Random()
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +64,7 @@ class ChatLogActivity : AppCompatActivity() {
 
         send_button_chat_log.setOnClickListener {
             Log.d(TAG, "Attempt to send message....")
+            perfotmFCMSendMessages()
             performSendMessage()
         }
 
@@ -284,5 +290,33 @@ class ChatLogActivity : AppCompatActivity() {
 
 
     }
+
+
+    fun perfotmFCMSendMessages() {
+        val fromId = FirebaseAuth.getInstance().uid
+        val user = intent.getParcelableExtra<User>(NewMessageActivity.USER_KEY)
+        val toId = user.uid
+//        btn_upmessage.setOnClickListener {
+        val fm = FirebaseMessaging.getInstance()
+
+        val message = RemoteMessage.Builder(SENDER_ID + "@gcm.googleapis.com")
+                .setMessageId(Integer.toString(random.nextInt(9999)))
+                .addData("TEST1-- $fromId", "TEST1--  $toId")
+//                    .addData(edt_key1.text.toString(), edt_value1.text.toString())
+//                    .addData(edt_key2.text.toString(), edt_value2.text.toString())
+                .build()
+
+        if (!message.data.isEmpty()) {
+            Log.e(TAG, "UpstreamData: " + message.data)
+        }
+
+        if (!message.messageId!!.isEmpty()) {
+            Log.e(TAG, "UpstreamMessageId: " + message.messageId)
+        }
+
+        fm.send(message)
+//        }
+    }
+
 
 }
