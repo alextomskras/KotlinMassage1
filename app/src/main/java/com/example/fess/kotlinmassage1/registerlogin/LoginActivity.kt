@@ -1,74 +1,73 @@
 package com.example.fess.kotlinmassage1.registerlogin
 
+
+
+
+
 import android.content.Intent
 import android.os.Bundle
-import android.support.v7.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatActivity
 import android.util.Log
 import android.widget.Toast
 import com.example.fess.kotlinmassage1.R
 import com.example.fess.kotlinmassage1.messages.LatestMessagesActivity
-import com.example.fess.kotlinmassage1.service.MyFirebaseInstanceIDService
-import com.example.fess.kotlinmassage1.service.MyFirebaseMessagingService
+import com.example.fess.kotlinmassage1.util.TokenStore
 import com.google.firebase.auth.FirebaseAuth
-import kotlinx.android.synthetic.main.activity_login.*
-import com.google.firebase.internal.FirebaseAppHelper.getToken
-import com.google.firebase.iid.InstanceIdResult
-import com.google.android.gms.tasks.OnSuccessListener
-import com.google.firebase.iid.FirebaseInstanceId
+import com.google.firebase.messaging.FirebaseMessaging
 
 
 class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.fess.kotlinmassage1.util.NotificationHelper.ensureChannel(this)
 
 
         setContentView(R.layout.activity_login)
-        login_button_login.setOnClickListener {
+        findViewById<android.widget.Button>(com.example.fess.kotlinmassage1.R.id.login_button_login).setOnClickListener {
             performLogin()
 //
         }
 
-        back_to_register_login.setOnClickListener {
+        findViewById<android.widget.TextView>(com.example.fess.kotlinmassage1.R.id.back_to_register_login).setOnClickListener {
             finish()
         }
 
 
     }
 
-    private fun refreshTokens(): String? {
-        val newToken = FirebaseInstanceId.getInstance().token
-        Log.d("newTokenLogin", (newToken))
-        Toast.makeText(this, "Please fill out $newToken", Toast.LENGTH_SHORT).show()
-
-
-        if (newToken != null) {
-            MyFirebaseMessagingService().saveTokenToFirebaseDatabase(newToken)
-        }
-        return newToken
+    private fun warmUpToken() {
+        // Просто «греем» InstanceId, чтобы FCM выдал токен.
+        // Запись в /user-tokens/{uid}/{deviceId} сделаем после успешного логина (TokenStore).
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    Log.d("LoginActivity", "fcm token: $token")
+                }
+                .addOnFailureListener {
+                    Log.w("LoginActivity", "Не удалось получить FCM token: ${it.message}")
+                }
     }
 
 
     private fun performLogin() {
-        val email = email_edittext_login.text.toString()
-        val password = password_edittext_login.text.toString()
+        val email = findViewById<android.widget.EditText>(com.example.fess.kotlinmassage1.R.id.email_edittext_login).text.toString()
+        val password = findViewById<android.widget.EditText>(com.example.fess.kotlinmassage1.R.id.password_edittext_login).text.toString()
 
-        refreshTokens()
+        warmUpToken()
 
         if (email.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Please fill out email/pw.", Toast.LENGTH_SHORT).show()
             return
         }
 
-
-//        FirebaseInstanceId.getInstance().token
-
-
         FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password)
                 .addOnCompleteListener {
                     if (!it.isSuccessful) return@addOnCompleteListener
 
-                    Log.d("Login", "Successfully logged in: ${it.result!!.user.uid}")
+                    Log.d("Login", "Successfully logged in: ${it.result!!.user!!.uid}")
+
+                    // Юзер залогинен — прописываем его токен в БД по схеме user-tokens/{uid}/{deviceId}
+                    TokenStore.saveCurrentToken(this)
 
                     val intent = Intent(this, LatestMessagesActivity::class.java)
                     intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK.or(Intent.FLAG_ACTIVITY_NEW_TASK)

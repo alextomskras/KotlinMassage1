@@ -1,211 +1,158 @@
 package com.example.fess.kotlinmassage1.messages
 
 import android.content.Intent
-import android.support.v7.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.support.v7.widget.DividerItemDecoration
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.Toast
+import androidx.recyclerview.widget.DividerItemDecoration
+import androidx.recyclerview.widget.RecyclerView
 import com.example.fess.kotlinmassage1.R
-import com.example.fess.kotlinmassage1.R.id.recyclerview_latest_messages
 import com.example.fess.kotlinmassage1.models.ChatMessage
 import com.example.fess.kotlinmassage1.models.User
 import com.example.fess.kotlinmassage1.registerlogin.RegisterActivity
+import com.example.fess.kotlinmassage1.util.DbPaths
+import com.example.fess.kotlinmassage1.util.NotificationHelper
+import com.example.fess.kotlinmassage1.util.TokenStore
+import com.example.fess.kotlinmassage1.views.DialogItem
 import com.example.fess.kotlinmassage1.views.LatestKartinkaMessageRow
 import com.example.fess.kotlinmassage1.views.LatestMessageRow
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.*
+import com.google.firebase.database.ChildEventListener
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import com.xwray.groupie.GroupAdapter
+import com.xwray.groupie.Item
 import com.xwray.groupie.ViewHolder
-import kotlinx.android.synthetic.main.activity_latest_messages.*
-//import kotlinx.android.synthetic.main.activity_latest_messages.*
-import java.util.*
 
 class LatestMessagesActivity : AppCompatActivity() {
 
     companion object {
+        /**
+         * Текущий юзер нужен ChatLog для подписи исходящих сообщений.
+         * TODO: заменить на ViewModel/репозиторий (глобальный mutable state — долгий рефакторинг).
+         * Пока хотя бы сбрасываем при logout, чтобы не показывать чужой профиль.
+         */
         var currentUser: User? = null
-        val TAG = "LatestMessages"
+        const val TAG = "LatestMessages"
     }
+
+    private val adapter = GroupAdapter<ViewHolder>()
+    // LinkedHashMap сохраняет порядок вставки Firebase (по ключам push)
+    private val latestMessagesMap = LinkedHashMap<String, ChatMessage>()
+    private var latestListener: ChildEventListener? = null
+    private var latestRef: DatabaseReference? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_latest_messages)
+        NotificationHelper.ensureChannel(this)
 
-        recyclerview_latest_messages.adapter = adapter
-        recyclerview_latest_messages.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
+        val recycler = findViewById<RecyclerView>(R.id.recyclerview_latest_messages)
+        recycler.adapter = adapter
+        recycler.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
 
-        // set item click listener on your adapter
-//        var imgMessages = refreshRecyclerViewMessages()
-//        Log.d(TAG, "IF_onCreate_mess $imgMessages")
-        adapter.setOnItemClickListener { item, view ->
-            Log.d(TAG, "123")
+        // Раньше здесь был жёсткий cast `item as LatestKartinkaMessageRow` — краш, когда
+        // в списке попадался текстовый диалог. Теперь общий интерфейс DialogItem.
+        adapter.setOnItemClickListener { item, _ ->
+            val partner = (item as? DialogItem)?.chatPartnerUser ?: return@setOnItemClickListener
             val intent = Intent(this, ChatLogActivity::class.java)
-
-            val row = item as LatestKartinkaMessageRow
-//            val row = item as LatestMessageRow
-            intent.putExtra(NewMessageActivity.USER_KEY, row.chatPartnerUser)
-            // val row = item as LatestKartinkaMessageRow
-
+            intent.putExtra(NewMessageActivity.USER_KEY, partner)
             startActivity(intent)
         }
 
-//    setupDummyRows()
         listenForLatestMessages()
-
         fetchCurrentUser()
-
         verifyUserIsLoggedIn()
     }
 
-
-//    private fun checkROW() {
-//      val fromId = FirebaseAuth.getInstance().uid
-//        val ref = FirebaseDatabase.getInstance().getReference("/latest-messages/$fromId")
-//        ref.addChildEventListener(object: ChildEventListener {
-//            override fun onChildAdded(p0: DataSnapshot, p1: String?) {
-//                val chatMessage = p0.getValue(ChatMessage::class.java) ?: return
-//                val substChatMessage = chatMessage.text.substringBefore('.')
-//                val test1 = chatMessage.text
-//                val time1 = chatMessage.timestamp*1000
-//                val sfd = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
-//                val sfd1 = sfd.format( Date(time1)).toString()
-//                    Log.d(TAG, "listenFor_mess $test1")
-//                    Log.d(TAG, "latest_DATE!!!! $sfd1")
-//    }
-
-    val latestMessagesMap = HashMap<String, ChatMessage>()
-
-    private fun refreshRecyclerViewMessages(imgMessages: String) {
-        adapter.clear()
-        latestMessagesMap.values.forEach {
-            Log.d(TAG, "IF_listenFor_mess $imgMessages")
-//            if (imgMessages == "picTures"){
-//                adapter.add(LatestKartinkaMessageRow(it))
-//
-//            }else{
-//                Log.d(TAG, "IF_listenFor_mess $imgMessages")
-//                adapter.add(LatestMessageRow(it))
-//
-//            }
-            adapter.add(LatestKartinkaMessageRow(it))
-            //adapter.add(LatestMessageRow(it))
+    private fun refreshRecyclerViewMessages() {
+        val items: List<Item<*>> = latestMessagesMap.values.map { msg ->
+            if (msg.type == ChatMessage.TYPE_IMAGE) LatestKartinkaMessageRow(msg)
+            else LatestMessageRow(msg)
         }
+        // было: adapter.clear() + add() по всему списку на КАЖДОЕ событие -> O(n^2) и фризы
+        adapter.updateWithDiff(items)
     }
 
-    fun listenForLatestMessages() {
-        val fromId = FirebaseAuth.getInstance().uid
-        val ref = FirebaseDatabase.getInstance().getReference("/latest-messages/$fromId")
-        ref.addChildEventListener(object : ChildEventListener {
+    private fun listenForLatestMessages() {
+        val fromId = FirebaseAuth.getInstance().uid ?: return
+        val ref = FirebaseDatabase.getInstance().getReference(DbPaths.latestRoot(fromId))
+
+        val listener = object : ChildEventListener {
             override fun onChildAdded(p0: DataSnapshot, p1: String?) {
                 val chatMessage = p0.getValue(ChatMessage::class.java) ?: return
-                val substChatMessage = chatMessage.text.substringBefore('.')
-                val test1 = chatMessage.text
-                val time1 = chatMessage.timestamp * 1000
-                val sfd = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
-                val sfd1 = sfd.format(Date(time1)).toString()
-                Log.d(TAG, "listenFor_mess $test1")
-                Log.d(TAG, "latest_DATE!!!! $sfd1")
-                if (substChatMessage == "https://firebasestorage") {
-                    var imgMessages = "picTures"
-                    Log.d(TAG, "pic_DATE!!!! $imgMessages")
-                    latestMessagesMap[p0.key!!] = chatMessage
-                    refreshRecyclerViewMessages(imgMessages)
-
-                } else {
-                    var imgMessages = "TEXT"
-                    Log.d(TAG, "pic_DATE!!!! $imgMessages")
-                    latestMessagesMap[p0.key!!] = chatMessage
-                    refreshRecyclerViewMessages(imgMessages)
-
-                }
-
-
+                latestMessagesMap[p0.key!!] = chatMessage
+                refreshRecyclerViewMessages()
             }
-
 
             override fun onChildChanged(p0: DataSnapshot, p1: String?) {
                 val chatMessage = p0.getValue(ChatMessage::class.java) ?: return
-                val substChatMessage = chatMessage.text.substringBefore('.')
-                val test1 = chatMessage.text
-                val time1 = chatMessage.timestamp * 1000
-//                formatedTime(time1)
-                val sfd = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
-                val sfd1 = sfd.format(Date(time1)).toString()
-                Log.d(TAG, "latests_mess $test1")
-                Log.d(TAG, "latest_DATE!!!! $sfd1")
-                if (substChatMessage == "https://firebasestorage") {
-                    var imgMessages = "picTures"
-                    Log.d(TAG, "pic_DATE!!!! $imgMessages")
-                    latestMessagesMap[p0.key!!] = chatMessage
-                    refreshRecyclerViewMessages(imgMessages)
-                } else {
-                    var imgMessages = "TEXT"
-                    Log.d(TAG, "pic_DATE!!!! $imgMessages")
-                    latestMessagesMap[p0.key!!] = chatMessage
-                    refreshRecyclerViewMessages(imgMessages)
-                }
-
-            }
-
-            override fun onChildMoved(p0: DataSnapshot, p1: String?) {
-
+                latestMessagesMap[p0.key!!] = chatMessage
+                refreshRecyclerViewMessages()
             }
 
             override fun onChildRemoved(p0: DataSnapshot) {
-
+                p0.key?.let { latestMessagesMap.remove(it) }
+                refreshRecyclerViewMessages()
             }
+
+            override fun onChildMoved(p0: DataSnapshot, p1: String?) {}
 
             override fun onCancelled(p0: DatabaseError) {
-
+                Log.w(TAG, "latest-messages listener cancelled: ${p0.message}")
             }
-        })
-
+        }
+        latestListener = listener
+        latestRef = ref
+        ref.addChildEventListener(listener)
     }
 
-    val adapter = GroupAdapter<ViewHolder>()
-
-
     private fun fetchCurrentUser() {
-        val uid = FirebaseAuth.getInstance().uid
-        val ref = FirebaseDatabase.getInstance().getReference("/users/$uid")
-        ref.addListenerForSingleValueEvent(object : ValueEventListener {
+        val uid = FirebaseAuth.getInstance().uid ?: return
+        FirebaseDatabase.getInstance().getReference(DbPaths.user(uid))
+            .addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(p0: DataSnapshot) {
+                    currentUser = p0.getValue(User::class.java)
+                    Log.d(TAG, "Current user loaded")
+                }
 
-            override fun onDataChange(p0: DataSnapshot) {
-                currentUser = p0.getValue(User::class.java)
-                Log.d("LatestMessages", "Current user ${currentUser?.profileImageUrl}")
-            }
-
-            override fun onCancelled(p0: DatabaseError) {
-
-            }
-        })
+                override fun onCancelled(p0: DatabaseError) {
+                    Toast.makeText(this@LatestMessagesActivity,
+                        "Не удалось загрузить профиль", Toast.LENGTH_SHORT).show()
+                }
+            })
     }
 
     private fun verifyUserIsLoggedIn() {
-        val uid = FirebaseAuth.getInstance().uid
-        if (uid == null) {
+        if (FirebaseAuth.getInstance().uid == null) {
             val intent = Intent(this, RegisterActivity::class.java)
-            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK.or(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK
             startActivity(intent)
         }
     }
 
-    override fun onOptionsItemSelected(item: MenuItem?): Boolean {
-        when (item?.itemId) {
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
             R.id.menu_new_message -> {
-                val intent = Intent(this, NewMessageActivity::class.java)
-                startActivity(intent)
+                startActivity(Intent(this, NewMessageActivity::class.java))
             }
             R.id.menu_sign_out -> {
+                // Убираем FCM-токен этого устройства из /user-tokens/{uid}/{deviceId},
+                // иначе бэкенд продолжит слать пуши на logout-аккаунт.
+                TokenStore.removeCurrentToken(this)
                 FirebaseAuth.getInstance().signOut()
+                currentUser = null
                 val intent = Intent(this, RegisterActivity::class.java)
-                intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK.or(Intent.FLAG_ACTIVITY_NEW_TASK)
+                intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK
                 startActivity(intent)
             }
         }
-
         return super.onOptionsItemSelected(item)
     }
 
@@ -214,4 +161,12 @@ class LatestMessagesActivity : AppCompatActivity() {
         return super.onCreateOptionsMenu(menu)
     }
 
+    override fun onDestroy() {
+        // Снимаем слушателя — иначе активити утекает в Firebase навсегда
+        val listener = latestListener
+        if (listener != null) latestRef?.removeEventListener(listener)
+        latestListener = null
+        latestRef = null
+        super.onDestroy()
+    }
 }

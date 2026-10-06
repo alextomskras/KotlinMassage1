@@ -1,21 +1,26 @@
 package com.example.fess.kotlinmassage1.registerlogin
 
+
+
+
+
 import android.app.Activity
+import android.content.ContentResolver
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
-import android.support.v7.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import com.example.fess.kotlinmassage1.R
 import com.example.fess.kotlinmassage1.messages.LatestMessagesActivity
-import com.example.fess.kotlinmassage1.service.MyFirebaseMessagingService
+import com.example.fess.kotlinmassage1.models.User
+import com.example.fess.kotlinmassage1.util.TokenStore
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.iid.FirebaseInstanceId
-import com.google.firebase.storage.FirebaseStorage
-import kotlinx.android.synthetic.main.activity_register.*
+import com.example.fess.kotlinmassage1.util.ImageUtils
 import java.util.*
 
 
@@ -23,23 +28,24 @@ class RegisterActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.fess.kotlinmassage1.util.NotificationHelper.ensureChannel(this)
         setContentView(R.layout.activity_register)
 
 
 
 
-        register_button_register.setOnClickListener {
+        findViewById<android.widget.Button>(com.example.fess.kotlinmassage1.R.id.register_button_register).setOnClickListener {
             performRegister()
         }
 
-        already_have_accaunt_text_view.setOnClickListener {
+        findViewById<android.widget.TextView>(com.example.fess.kotlinmassage1.R.id.already_have_accaunt_text_view).setOnClickListener {
             Log.d("RegisterActivity", "Try show log activity")
             //Lounch login activity somehow
             val intent = Intent(this, LoginActivity::class.java)
             startActivity(intent)
         }
 
-        select_photo_button_register.setOnClickListener {
+        findViewById<android.widget.Button>(com.example.fess.kotlinmassage1.R.id.select_photo_button_register).setOnClickListener {
             Log.d("RegisterActivity", "Try select photo")
 
             val intent = Intent(Intent.ACTION_PICK)
@@ -52,6 +58,26 @@ class RegisterActivity : AppCompatActivity() {
 
     var selectedPhotoUri: Uri? = null
 
+    /**
+     * Безопасная (без OOM) загрузка bitmap из content-uri с даунсемплом ~1280px.
+     * Замена deprecated MediaStore.Images.Media.getBitmap (SDK 34).
+     */
+    private fun uriToSampledBitmap(resolver: ContentResolver, uri: Uri?): Bitmap? {
+        if (uri == null) return null
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
+            while (maxSide / sample > 1280) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        } catch (e: Exception) {
+            Log.e("RegisterActivity", "Failed to load image: ${e.message}")
+            null
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -60,11 +86,19 @@ class RegisterActivity : AppCompatActivity() {
 
             selectedPhotoUri = data.data
 
-            val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, selectedPhotoUri)
+            // SDK 34: MediaStore.Images.Media.getBitmap deprecated (OOM на больших фото).
+            // ImageUtils.decodeSampledBitmap-логика не нужна здесь целиком — достаточно
+            // безопасной загрузки через contentResolver с даунсемплом.
+            val bitmap = uriToSampledBitmap(contentResolver, selectedPhotoUri)
 
-            select_photoview_register.setImageBitmap(bitmap)
+            if (bitmap == null) {
+                Toast.makeText(this, "Не удалось загрузить фото", Toast.LENGTH_SHORT).show()
+                return
+            }
 
-            select_photo_button_register.alpha = 0f
+            findViewById<de.hdodenhof.circleimageview.CircleImageView>(com.example.fess.kotlinmassage1.R.id.select_photoview_register).setImageBitmap(bitmap)
+
+            findViewById<android.widget.Button>(com.example.fess.kotlinmassage1.R.id.select_photo_button_register).alpha = 0f
 
             //  val bitmapDrawable = BitmapDrawable(bitmap)
             // select_photo_button_register.setBackgroundDrawable(bitmapDrawable)
@@ -74,25 +108,26 @@ class RegisterActivity : AppCompatActivity() {
 
     private fun performRegister() {
 
-        val email = email_edittext_register.text.toString()
-        val password = password_edittext_register.text.toString()
+        val email = findViewById<android.widget.EditText>(com.example.fess.kotlinmassage1.R.id.email_edittext_register).text.toString()
+        val password = findViewById<android.widget.EditText>(com.example.fess.kotlinmassage1.R.id.password_edittext_register).text.toString()
 
         if (email.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Please enter email/pw", Toast.LENGTH_SHORT).show()
             return
         }
 
-        Log.d("RegisterActivity", "Email is: " + email)
-        Log.d("RegisterActivity", "Password is: $password")
+        // НЕ логируем пароль и email — учётные данные не должны попадать в logcat
         //Firebase Auth for create User whith Email and password
 
         FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password)
                 .addOnCompleteListener {
                     if (!it.isSuccessful) return@addOnCompleteListener
                     //Else if successful
-                    Log.d("Main", "Succefful create user: ${it.result!!.user.uid}")
+                    Log.d("Main", "Succefful create user: ${it.result!!.user!!.uid}")
 
-                    uploadImageToFirebaseStorage()
+                    val avatarB64 = if (selectedPhotoUri != null)
+                        ImageUtils.compressToBase64(this, selectedPhotoUri!!) ?: "" else ""
+                    saveUserToFirebaseDatabase(avatarB64)
                 }
                 .addOnFailureListener {
                     Log.d("Main", "Failed create user: ${it.message}")
@@ -100,40 +135,6 @@ class RegisterActivity : AppCompatActivity() {
                 }
     }
 
-    private fun uploadImageToFirebaseStorage() {
-        if (selectedPhotoUri == null) return
-
-        val filename = UUID.randomUUID().toString()
-        val ref = FirebaseStorage.getInstance().getReference("/images/$filename")
-
-        ref.putFile(selectedPhotoUri!!)
-                .addOnSuccessListener {
-                    Log.d("Register", "Successfully upload image: ${it.metadata?.path}")
-
-                    ref.downloadUrl.addOnSuccessListener {
-                        Log.d("Register", "File location: $it")
-
-                        saveUserToFirebaseDatabase(it.toString())
-
-                    }
-                }
-                .addOnFailureListener {
-                    // do on fail
-                    Log.d("Register", "File location: ${it.message}")
-                }
-
-    }
-
-    private fun refreshTokens(): String? {
-        val newToken = FirebaseInstanceId.getInstance().token
-        Log.d("newToken", (newToken))
-        Toast.makeText(this, "Please fill out $newToken", Toast.LENGTH_SHORT).show()
-        return newToken
-
-        if (newToken != null) {
-            MyFirebaseMessagingService().saveTokenToFirebaseDatabase(newToken)
-        }
-    }
 
     private fun saveUserToFirebaseDatabase(profileImageUrl: String) {
 
@@ -141,13 +142,14 @@ class RegisterActivity : AppCompatActivity() {
         val uid = FirebaseAuth.getInstance().uid ?: ""
         val ref = FirebaseDatabase.getInstance().getReference("/users/$uid")
 
-        val newToken = refreshTokens().toString()
-        Log.d("saveNewToken", "$newToken")
-        val user = User(uid, username_edittext_register.text.toString(), profileImageUrl, newToken)
+        val user = User(uid, findViewById<android.widget.EditText>(com.example.fess.kotlinmassage1.R.id.username_edittext_register).text.toString(), profileImageUrl)
 
         ref.setValue(user)
                 .addOnSuccessListener {
                     Log.d("Register", "Finally save user to firebasedatabase")
+
+                    // Сохраняем FCM-токен нового юзера по схеме /user-tokens/{uid}/{deviceId}
+                    TokenStore.saveCurrentToken(this)
 
                     val intent = Intent(this, LatestMessagesActivity::class.java)
                     intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK.or(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -162,6 +164,3 @@ class RegisterActivity : AppCompatActivity() {
 
 }
 
-class User(val uid: String, val username: String, val profileImageUrl: String, val newToken: String) {
-    constructor() : this("", "", "", "")
-}

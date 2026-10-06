@@ -3,14 +3,21 @@ package com.example.fess.kotlinmassage1.messages
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.support.v7.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Log
+import android.widget.Button
+import android.widget.EditText
 import android.widget.Toast
+import androidx.recyclerview.widget.RecyclerView
 import com.example.fess.kotlinmassage1.R
 import com.example.fess.kotlinmassage1.models.ChatMessage
 import com.example.fess.kotlinmassage1.models.User
+import com.example.fess.kotlinmassage1.registerlogin.LoginActivity
+import com.example.fess.kotlinmassage1.util.DbPaths
+import com.example.fess.kotlinmassage1.util.ImageLoader
+import com.example.fess.kotlinmassage1.util.ImageUtils
+import com.example.fess.kotlinmassage1.util.NotificationHelper
 import com.example.fess.kotlinmassage1.views.ChatFromItem
 import com.example.fess.kotlinmassage1.views.ChatToItem
 import com.example.fess.kotlinmassage1.views.KartinkaFromItem
@@ -20,269 +27,205 @@ import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.storage.FirebaseStorage
 import com.xwray.groupie.GroupAdapter
+import com.xwray.groupie.Item
 import com.xwray.groupie.ViewHolder
-import kotlinx.android.synthetic.main.activity_chat_log.*
-import java.util.*
-
-//import kotlinx.android.synthetic.main.notification_template_lines_media.view.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ChatLogActivity : AppCompatActivity() {
 
     companion object {
-        val TAG = "ChatLog"
+        const val TAG = "ChatLog"
+        private const val REQUEST_PICK_IMAGE = 0
+        /** Формат времени сообщений; единый для всего экрана. */
+        private val TIME_FORMAT = SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault())
     }
 
-    val adapter = GroupAdapter<ViewHolder>()
-
-    var toUser: User? = null
-
+    private val adapter = GroupAdapter<ViewHolder>()
+    private var toUser: User? = null
+    /** Сохраняем слушателя + ref, чтобы снять его в onDestroy (раньше утекал вместе с активити). */
+    private var messagesListener: ChildEventListener? = null
+    private var messagesRef: com.google.firebase.database.DatabaseReference? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chat_log)
+        NotificationHelper.ensureChannel(this)
 
-        recyclerview_chat_log.adapter = adapter
+        findViewById<RecyclerView>(R.id.recyclerview_chat_log).adapter = this.adapter
+
+        // ЭКРАНАЦИЯ PUSH-ТАПА: раньше ChatLog открывался с произвольным fromId из
+        // Intent без проверки сессии. Теперь без авторизации экран не работает.
+        if (FirebaseAuth.getInstance().uid == null) {
+            startActivity(Intent(this, LoginActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK))
+            finish()
+            return
+        }
 
         toUser = intent.getParcelableExtra<User>(NewMessageActivity.USER_KEY)
 
-        supportActionBar?.title = toUser?.username
+        val partner = toUser
+        if (partner == null || partner.uid.isEmpty()) {
+            // Прямой запуск экрана без выбранного собеседника — возвращаемся к списку чатов
+            Toast.makeText(this, "Собеседник не выбран", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
 
+        supportActionBar?.title = partner.username
 
-//    setupDummyData()
         listenForMessages()
 
-
-
-
-
-        send_button_chat_log.setOnClickListener {
-            Log.d(TAG, "Attempt to send message....")
+        findViewById<Button>(R.id.send_button_chat_log).setOnClickListener {
             performSendMessage()
         }
 
-        image_send_button_chat_log.setOnClickListener {
-            Log.d(TAG, "Attempt to select images....")
-            Toast.makeText(this, "Please select images", Toast.LENGTH_SHORT).show()
-
-            val intent = Intent(Intent.ACTION_PICK)
-            intent.type = "image/*"
-            startActivityForResult(intent, 0)
+        findViewById<Button>(R.id.image_send_button_chat_log).setOnClickListener {
+            val intent = Intent(Intent.ACTION_PICK).apply { type = "image/*" }
+            startActivityForResult(intent, REQUEST_PICK_IMAGE)
         }
     }
-
-    var selectedImageUri: Uri? = null
-
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == 0 && resultCode == Activity.RESULT_OK && data != null) {
-            Log.d(TAG, "Photo was selected")
-
-            selectedImageUri = data.data
-
-            val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, selectedImageUri)
-
-            select_photoview_image_send.setImageBitmap(bitmap)
-
-            image_send_button_chat_log.alpha = 0f
-
-            uploadImageToFirebaseStorage()
-
-            //  val bitmapDrawable = BitmapDrawable(bitmap)
-            // select_photo_button_register.setBackgroundDrawable(bitmapDrawable)
-            //Toast.makeText(this, "Please enter email/pw", Toast.LENGTH_SHORT).show()
-
+        if (requestCode == REQUEST_PICK_IMAGE && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            findViewById<Button>(R.id.image_send_button_chat_log).alpha = 0f
+            // Сжатие + base64 — в фоне (ImageLoader), результат приходит в main.
+            // Картинку НЕ грузим в Firebase Storage — кладём base64 прямо в БД.
+            ImageLoader.compressUri(this, uri) { b64 ->
+                if (isFinishing || isDestroyed) return@compressUri
+                if (b64 == null) {
+                    Toast.makeText(this, "Не удалось обработать картинку", Toast.LENGTH_SHORT).show()
+                } else {
+                    writeMessage(b64, ChatMessage.TYPE_IMAGE)
+                }
+                resetImagePickerUi()
+            }
         }
     }
 
-
-    fun uploadImageToFirebaseStorage() {
-        if (selectedImageUri == null) return
-
-
-        val filename = UUID.randomUUID().toString()
-        val ref = FirebaseStorage.getInstance().getReference("/images/$filename")
-
-        ref.putFile(selectedImageUri!!)
-                .addOnSuccessListener {
-                    Log.d(TAG, "Successfully upload image: ${it.metadata?.path}")
-
-                    ref.downloadUrl.addOnSuccessListener {
-                        Log.d(TAG, "File location: $it")
-
-
-                        // performSendMessage(it.toString())
-
-                        //  saveUserToFirebaseDatabase(it.toString())
-
-                        val kartinkaUrl = (it.toString())
-                        performSendImage(kartinkaUrl)
-
-
-                        Log.d(TAG, "TEST location: $kartinkaUrl")
-
-
-                    }
-                }
-                .addOnFailureListener {
-                    // do on fail
-                    Log.d(TAG, "File location: ${it.message}")
-                }
-
+    private fun resetImagePickerUi() {
+        findViewById<de.hdodenhof.circleimageview.CircleImageView>(R.id.select_photoview_image_send)
+            .setImageBitmap(null)
+        findViewById<Button>(R.id.image_send_button_chat_log).alpha = 1f
     }
 
+    /**
+     * Рендер сообщения по ЯВНОМУ типу (ChatMessage.type с обратной совместимостью):
+     * image -> Kartinka*, иначе Chat*. Декод base64 внутри items — через ImageLoader (фон).
+     */
+    private fun buildChatItem(chatMessage: ChatMessage, isIncoming: Boolean): Item<ViewHolder> {
+        val timeStr = TIME_FORMAT.format(Date(chatMessage.timestamp * 1000))
+        val user = if (isIncoming) toUser!! else (LatestMessagesActivity.currentUser ?: toUser!!)
+        return when {
+            chatMessage.type == ChatMessage.TYPE_IMAGE && isIncoming ->
+                KartinkaToItem(chatMessage.text, user, timeStr)
+            chatMessage.type == ChatMessage.TYPE_IMAGE ->
+                KartinkaFromItem(chatMessage.text, user, timeStr)
+            isIncoming -> ChatToItem(chatMessage.text, user, timeStr)
+            else -> ChatFromItem(chatMessage.text, user, timeStr)
+        }
+    }
 
-    fun listenForMessages() {
+    private fun listenForMessages() {
+        val fromId = FirebaseAuth.getInstance().uid ?: return
+        val toId = toUser?.uid ?: return
+        val ref = FirebaseDatabase.getInstance().getReference(DbPaths.conversation(fromId, toId))
 
-        val fromId = FirebaseAuth.getInstance().uid
-        val toId = toUser?.uid
-        val ref = FirebaseDatabase.getInstance().getReference("/user-messages/$fromId/$toId")
-
-        ref.addChildEventListener(object : ChildEventListener {
-
+        val listener = object : ChildEventListener {
             override fun onChildAdded(p0: DataSnapshot, p1: String?) {
-                val chatMessage = p0.getValue(ChatMessage::class.java)
-
-                if (chatMessage != null) {
-                    Log.d(TAG, chatMessage.text)
-
-                    if (chatMessage.fromId == FirebaseAuth.getInstance().uid) {
-                        val currentUser = LatestMessagesActivity.currentUser ?: return
-                        val substChatMessage = chatMessage.text.substringBefore('.')
-                        val test1 = chatMessage.text
-                        val time1 = chatMessage.timestamp * 1000
-                        val sfd = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
-                        val sfd1 = sfd.format(Date(time1)).toString()
-                        if (substChatMessage == "https://firebasestorage") {
-                            Log.d(TAG, "HTTPS!!!! $test1")
-                            Log.d(TAG, "TIMERSSS!!!! $sfd1")
-
-                            adapter.add(KartinkaFromItem(chatMessage.text, currentUser, sfd1))
-                        } else {
-                            adapter.add(ChatFromItem(chatMessage.text, currentUser, sfd1))
-                        }
-
-                    } else {
-                        val substChatMessage = chatMessage.text.substringBefore('.')
-                        val test1 = chatMessage.text
-                        val time1 = chatMessage.timestamp * 1000
-                        val sfd = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
-                        val sfd1 = sfd.format(Date(time1)).toString()
-                        if (substChatMessage == "https://firebasestorage") {
-                            Log.d(TAG, "HTTPS!!!!_to_ $test1")
-                            adapter.add(KartinkaToItem(chatMessage.text, toUser!!, sfd1))
-                        } else {
-                            adapter.add(ChatToItem(chatMessage.text, toUser!!, sfd1))
-                        }
-
-                    }
-                }
-
-                recyclerview_chat_log.scrollToPosition(adapter.itemCount - 1)
-
+                val chatMessage = p0.getValue(ChatMessage::class.java) ?: return
+                val isIncoming = chatMessage.fromId != FirebaseAuth.getInstance().uid
+                adapter.add(buildChatItem(chatMessage, isIncoming))
+                scrollToBottom()
             }
 
             override fun onCancelled(p0: DatabaseError) {
-
+                Log.w(TAG, "messages listener cancelled: ${p0.message}")
             }
 
-            override fun onChildChanged(p0: DataSnapshot, p1: String?) {
-
-            }
-
-            override fun onChildMoved(p0: DataSnapshot, p1: String?) {
-
-            }
-
-            override fun onChildRemoved(p0: DataSnapshot) {
-
-            }
-
-        })
-
+            override fun onChildChanged(p0: DataSnapshot, p1: String?) {}
+            override fun onChildMoved(p0: DataSnapshot, p1: String?) {}
+            override fun onChildRemoved(p0: DataSnapshot) {}
+        }
+        messagesListener = listener
+        messagesRef = ref
+        ref.addChildEventListener(listener)
     }
 
-
-    fun performSendMessage() {
-
-        // how do we actually send a message to firebase...
-        val text = edittext_chat_log.text.toString()
-
-
-        // val kartinka = (kartinkaUrl)
-        // Log.d(TAG, "TEST1 location: $kartinka")
-
-        val fromId = FirebaseAuth.getInstance().uid
-        val user = intent.getParcelableExtra<User>(NewMessageActivity.USER_KEY)
-        val toId = user.uid
-
-        if (fromId == null) return
-
-        //  val reference = FirebaseDatabase.getInstance().getReference("/messages").push()
-
-        val reference = FirebaseDatabase.getInstance().getReference("/user-messages/$fromId/$toId").push()
-        val toReference = FirebaseDatabase.getInstance().getReference("/user-messages/$toId/$fromId").push()
-
-        val chatMessage = ChatMessage(reference.key!!, text, fromId, toId, System.currentTimeMillis() / 1000)
-        reference.setValue(chatMessage)
-                .addOnSuccessListener {
-                    Log.d(TAG, "Saved our chat message: ${reference.key}")
-                    edittext_chat_log.text.clear()
-                    recyclerview_chat_log.scrollToPosition(adapter.itemCount - 1)
-                }
-        toReference.setValue(chatMessage)
-        Log.d(TAG, "Saved to our chat message: ${toReference.key}")
-
-        val latestMessageRef = FirebaseDatabase.getInstance().getReference("/latest-messages/$fromId/$toId")
-        latestMessageRef.setValue(chatMessage)
-
-        val latestMessageToRef = FirebaseDatabase.getInstance().getReference("/latest-messages/$toId/$fromId")
-        latestMessageToRef.setValue(chatMessage)
-
-
+    private fun scrollToBottom() {
+        if (adapter.itemCount > 0) {
+            findViewById<RecyclerView>(R.id.recyclerview_chat_log)
+                .scrollToPosition(adapter.itemCount - 1)
+        }
     }
 
+    /**
+     * Единая точка записи сообщения: ОДИН атомарный multi-path update
+     * (user-messages в обе стороны + latest-messages + задача push в /outbox).
+     * Раньше было 5 независимых setValue — при обрыве сети диалог и «последнее
+     * сообщение» могли разъехаться, а push потеряться.
+     */
+    private fun writeMessage(text: String, msgType: String) {
+        val fromId = FirebaseAuth.getInstance().uid ?: return
+        val toId = toUser?.uid ?: return
 
-    fun performSendImage(kartinkaUrl: String) {
+        val db = FirebaseDatabase.getInstance().reference
+        val messageRef = db.child(DbPaths.conversation(fromId, toId)).push()
+        val mirrorKey = db.child(DbPaths.conversation(toId, fromId)).push().key ?: return
+        val outboxKey = db.child(DbPaths.OUTBOX).push().key ?: return
 
-        // how do we actually send a message to firebase...
-        val text = edittext_chat_log.text.toString()
+        val nowSec = System.currentTimeMillis() / 1000
+        val chatMessage = ChatMessage(messageRef.key!!, text, fromId, toId, nowSec, msgType)
 
+        // preview для пуша: base64 туда НЕ кладём (лимит payload 4 КБ)
+        val preview = if (msgType == ChatMessage.TYPE_IMAGE) "📷 Картинка" else text.take(120)
 
-        val kartinka = (kartinkaUrl)
-        Log.d(TAG, "TEST1 location: $kartinka")
+        val updates = HashMap<String, Any>()
+        updates["/${DbPaths.conversation(fromId, toId)}/${messageRef.key}"] = chatMessage
+        updates["/${DbPaths.conversation(toId, fromId)}/$mirrorKey"] = chatMessage
+        updates["/${DbPaths.latestConversation(fromId, toId)}"] = chatMessage
+        updates["/${DbPaths.latestConversation(toId, fromId)}"] = chatMessage
+        updates["/${DbPaths.OUTBOX}/$outboxKey"] = mapOf(
+            "msgId" to chatMessage.id,
+            "fromId" to fromId,
+            "toId" to toId,
+            "type" to msgType,
+            "preview" to preview,
+            "timestamp" to nowSec
+        )
 
-        val fromId = FirebaseAuth.getInstance().uid
-        val user = intent.getParcelableExtra<User>(NewMessageActivity.USER_KEY)
-        val toId = user.uid
-
-        if (fromId == null) return
-
-        //  val reference = FirebaseDatabase.getInstance().getReference("/messages").push()
-
-        val reference = FirebaseDatabase.getInstance().getReference("/user-messages/$fromId/$toId").push()
-        val toReference = FirebaseDatabase.getInstance().getReference("/user-messages/$toId/$fromId").push()
-
-        val chatMessage = ChatMessage(reference.key!!, kartinka, fromId, toId, System.currentTimeMillis() / 1000)
-        reference.setValue(chatMessage)
-                .addOnSuccessListener {
-                    Log.d(TAG, "Saved our chat message: ${reference.key}")
-                    edittext_chat_log.text.clear()
-                    recyclerview_chat_log.scrollToPosition(adapter.itemCount - 1)
-                }
-        toReference.setValue(chatMessage)
-        Log.d(TAG, "Saved to our chat message: ${toReference.key}")
-
-        val latestMessageRef = FirebaseDatabase.getInstance().getReference("/latest-messages/$fromId/$toId")
-        latestMessageRef.setValue(chatMessage)
-
-        val latestMessageToRef = FirebaseDatabase.getInstance().getReference("/latest-messages/$toId/$fromId")
-        latestMessageToRef.setValue(chatMessage)
-
-
+        db.updateChildren(updates)
+            .addOnSuccessListener {
+                Log.d(TAG, "Saved chat message: ${chatMessage.id}")
+                findViewById<EditText>(R.id.edittext_chat_log).text.clear()
+                scrollToBottom()
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to save message", e)
+                Toast.makeText(this, "Сообщение не отправлено: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
     }
 
+    private fun performSendMessage() {
+        val text = findViewById<EditText>(R.id.edittext_chat_log).text.toString()
+        if (text.isEmpty()) return
+        writeMessage(text, ChatMessage.TYPE_TEXT)
+    }
+
+    override fun onDestroy() {
+        // Снимаем слушателя — иначе активити утекает в Firebase навсегда
+        val listener = messagesListener
+        if (listener != null) {
+            messagesRef?.removeEventListener(listener)
+        }
+        messagesListener = null
+        messagesRef = null
+        super.onDestroy()
+    }
 }
