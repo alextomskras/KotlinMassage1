@@ -1,7 +1,11 @@
 package com.example.fess.kotlinmassage1.messages
 
+
+
+
+
 import android.content.Intent
-import android.support.v7.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import com.example.fess.kotlinmassage1.R
@@ -15,8 +19,6 @@ import com.squareup.picasso.Picasso
 import com.xwray.groupie.GroupAdapter
 import com.xwray.groupie.Item
 import com.xwray.groupie.ViewHolder
-import kotlinx.android.synthetic.main.activity_new_message.*
-import kotlinx.android.synthetic.main.user_row_new_message.view.*
 
 class NewMessageActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,7 +65,7 @@ class NewMessageActivity : AppCompatActivity() {
                 }
 
                 //recyclerview_newmessage.adapter = adapter
-                recyclerview_newmessage.adapter = adapter
+                findViewById<androidx.recyclerview.widget.RecyclerView>(com.example.fess.kotlinmassage1.R.id.recyclerview_newmessage).adapter = adapter
             }
 
             override fun onCancelled(p0: DatabaseError) {
@@ -75,9 +77,9 @@ class NewMessageActivity : AppCompatActivity() {
 
 class UserItem(val user: User) : Item<ViewHolder>() {
     override fun bind(viewHolder: ViewHolder, position: Int) {
-        viewHolder.itemView.username_textview_new_message.text = user.username
+        viewHolder.itemView.findViewById<android.widget.TextView>(com.xwray.groupie.ViewIdResolver.idOf("username_textview_new_message")).text = user.username
 
-        Picasso.get().load(user.profileImageUrl).into(viewHolder.itemView.imageview_new_message)
+        Picasso.get().load(user.profileImageUrl).into(viewHolder.itemView.findViewById<de.hdodenhof.circleimageview.CircleImageView>(com.xwray.groupie.ViewIdResolver.idOf("imageview_new_message")))
     }
 
     override fun getLayout(): Int {
